@@ -15,8 +15,14 @@ import {
   Stack,
   CircularProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  FormControl,
+  InputLabel,
 } from "@mui/material";
-import { Search, MoreVert, Edit, Delete } from "@mui/icons-material";
+import { Search, MoreVert, Delete } from "@mui/icons-material";
 import AdminLayout from "./AdminLayout";
 import userService from "../services/userService";
 
@@ -50,10 +56,15 @@ const Users = () => {
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("Newest");
+  const [selectedRole, setSelectedRole] = useState("All");
   const [page, setPage] = useState(1);
   const [rowsPerPage] = useState(8);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
+  const [availableRoles, setAvailableRoles] = useState(["All"]);
 
   // Fetch users from the backend
   useEffect(() => {
@@ -61,17 +72,21 @@ const Users = () => {
       try {
         setLoading(true);
         const data = await userService.getAllUsers();
-        
+
         // Transform the data to match our component's structure
-        const transformedUsers = data.map(user => ({
+        const transformedUsers = data.map((user) => ({
           id: user.userId,
           name: `${user.firstName} ${user.lastName}`,
           role: user.role,
           email: user.email,
           status: "Active", // Default status since backend doesn't provide it
-          createdAt: user.createdAt
+          createdAt: user.createdAt,
         }));
-        
+
+        // Extract unique roles from users
+        const roles = [...new Set(transformedUsers.map((user) => user.role))];
+        setAvailableRoles(["All", ...roles]);
+
         setUsers(transformedUsers);
         setError(null);
       } catch (err) {
@@ -85,23 +100,160 @@ const Users = () => {
     fetchUsers();
   }, []);
 
-  // Filter users based on search query
-  const filteredUsers = users.filter(
-    (user) =>
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Reset page when search query or role changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, selectedRole]);
 
-  // Calculate pagination
-  const totalPages = Math.ceil(filteredUsers.length / rowsPerPage);
-  const startIndex = (page - 1) * rowsPerPage;
-  const endIndex = startIndex + rowsPerPage;
-  const currentUsers = filteredUsers.slice(startIndex, endIndex);
+  const handleSearchChange = (event) => {
+    setSearchQuery(event.target.value);
+  };
+
+  const handleSortChange = (event) => {
+    setSortBy(event.target.value);
+  };
+
+  const handleRoleChange = (event) => {
+    setSelectedRole(event.target.value);
+  };
 
   const handlePageChange = (event, newPage) => {
     setPage(newPage);
   };
+
+  const handleDeleteClick = (user) => {
+    setUserToDelete(user);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    try {
+      await userService.deleteUser(userToDelete.id);
+      setUsers(users.filter((user) => user.id !== userToDelete.id));
+      setDeleteDialogOpen(false);
+      setUserToDelete(null);
+      setDeleteError(null);
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      setDeleteError(error.response?.data || "Failed to delete user");
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setDeleteDialogOpen(false);
+    setUserToDelete(null);
+    setDeleteError(null);
+  };
+
+  // Filter and sort users
+  const getFilteredAndSortedUsers = () => {
+    let filtered = users;
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (user) =>
+          user.name.toLowerCase().includes(query) ||
+          user.email.toLowerCase().includes(query) ||
+          user.role.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply role filter
+    if (selectedRole !== "All") {
+      filtered = filtered.filter((user) => user.role === selectedRole);
+    }
+
+    // Apply sorting
+    return filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "Newest":
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        case "Oldest":
+          return new Date(a.createdAt) - new Date(b.createdAt);
+        case "Name":
+          return a.name.localeCompare(b.name);
+        default:
+          return 0;
+      }
+    });
+  };
+
+  const filteredAndSortedUsers = getFilteredAndSortedUsers();
+  const totalPages = Math.ceil(filteredAndSortedUsers.length / rowsPerPage);
+  const startIndex = (page - 1) * rowsPerPage;
+  const displayedUsers = filteredAndSortedUsers.slice(
+    startIndex,
+    startIndex + rowsPerPage
+  );
+
+  const renderUserRow = (user) => (
+    <Box
+      key={user.id}
+      sx={{
+        display: "grid",
+        gridTemplateColumns: "2.5fr 1fr 2fr 1fr 1fr",
+        borderBottom: "1px solid #E2E8F0",
+        p: 2,
+        bgcolor: "white",
+        "&:hover": { bgcolor: "#F8FAFC" },
+        "&:last-child": { borderBottom: "none" },
+      }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <Avatar
+          sx={{
+            width: 32,
+            height: 32,
+            bgcolor: getAvatarColor(user.name),
+            fontSize: "0.875rem",
+            fontWeight: 600,
+          }}
+        >
+          {user.name
+            .split(" ")
+            .map((n) => n[0])
+            .join("")}
+        </Avatar>
+        <Typography
+          sx={{ color: "#1a1f36", fontSize: "0.875rem", fontWeight: 500 }}
+        >
+          {user.name}
+        </Typography>
+      </Box>
+      <Typography sx={{ color: "#64748B", fontSize: "0.875rem" }}>
+        {user.role}
+      </Typography>
+      <Typography sx={{ color: "#64748B", fontSize: "0.875rem" }}>
+        {user.email}
+      </Typography>
+      <Box>
+        <Chip
+          label={user.status}
+          size="small"
+          sx={{
+            bgcolor: user.status === "Active" ? "#dcfce7" : "#fee2e2",
+            color: user.status === "Active" ? "#16a34a" : "#ef4444",
+            fontWeight: 500,
+            fontSize: "0.75rem",
+          }}
+        />
+      </Box>
+      <Box>
+        <IconButton
+          size="small"
+          sx={{
+            color: "#8B0000",
+            "&:hover": { bgcolor: "rgba(139, 0, 0, 0.1)" },
+          }}
+          onClick={() => handleDeleteClick(user)}
+        >
+          <Delete sx={{ fontSize: 20 }} />
+        </IconButton>
+      </Box>
+    </Box>
+  );
 
   return (
     <AdminLayout>
@@ -148,7 +300,7 @@ const Users = () => {
           <TextField
             placeholder="Search users..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleSearchChange}
             sx={{
               flex: 1,
               maxWidth: 300,
@@ -173,27 +325,64 @@ const Users = () => {
               ),
             }}
           />
-          <Select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            sx={{
-              minWidth: 150,
-              bgcolor: "white",
-              "& .MuiOutlinedInput-notchedOutline": {
-                borderColor: "#E2E8F0",
-              },
-              "&:hover .MuiOutlinedInput-notchedOutline": {
-                borderColor: "#8B0000",
-              },
-              "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                borderColor: "#8B0000",
-              },
-            }}
-          >
-            <MenuItem value="Newest">Sort by: Newest</MenuItem>
-            <MenuItem value="Oldest">Sort by: Oldest</MenuItem>
-            <MenuItem value="Name">Sort by: Name</MenuItem>
-          </Select>
+
+          <FormControl sx={{ minWidth: 150 }}>
+            <InputLabel id="role-filter-label" sx={{ color: "#64748B" }}>
+              Filter by Role
+            </InputLabel>
+            <Select
+              labelId="role-filter-label"
+              value={selectedRole}
+              label="Filter by Role"
+              onChange={handleRoleChange}
+              sx={{
+                bgcolor: "white",
+                "& .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "#E2E8F0",
+                },
+                "&:hover .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "#8B0000",
+                },
+                "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "#8B0000",
+                },
+              }}
+            >
+              {availableRoles.map((role) => (
+                <MenuItem key={role} value={role}>
+                  {role}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl sx={{ minWidth: 150 }}>
+            <InputLabel id="sort-by-label" sx={{ color: "#64748B" }}>
+              Sort by
+            </InputLabel>
+            <Select
+              labelId="sort-by-label"
+              value={sortBy}
+              label="Sort by"
+              onChange={handleSortChange}
+              sx={{
+                bgcolor: "white",
+                "& .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "#E2E8F0",
+                },
+                "&:hover .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "#8B0000",
+                },
+                "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "#8B0000",
+                },
+              }}
+            >
+              <MenuItem value="Newest">Newest</MenuItem>
+              <MenuItem value="Oldest">Oldest</MenuItem>
+              <MenuItem value="Name">Name</MenuItem>
+            </Select>
+          </FormControl>
         </Box>
 
         {/* Error message */}
@@ -203,233 +392,153 @@ const Users = () => {
           </Alert>
         )}
 
-        {/* Loading indicator */}
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
-            <CircularProgress sx={{ color: '#8B0000' }} />
-          </Box>
-        ) : (
-          <>
-            {/* Users Table */}
-            <Paper
-              sx={{
-                borderRadius: 2,
-                boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
-                overflow: "hidden",
-                transition:
-                  "transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
-                "&:hover": {
-                  transform: "translateY(-2px)",
-                  boxShadow: "0 4px 8px rgba(0,0,0,0.08)",
-                },
-              }}
+        {/* Users Table */}
+        <Paper
+          sx={{
+            borderRadius: 2,
+            boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
+            overflow: "hidden",
+            transition:
+              "transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.08)",
+            },
+          }}
+        >
+          {/* Table Header */}
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "2.5fr 1fr 2fr 1fr 1fr",
+              borderBottom: "1px solid #E2E8F0",
+              bgcolor: "#F8FAFC",
+              p: 2,
+            }}
+          >
+            <Typography
+              sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
             >
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: "2.5fr 1fr 2fr 1fr 1fr",
-                  borderBottom: "1px solid #E2E8F0",
-                  bgcolor: "#F8FAFC",
-                  p: 2,
-                }}
-              >
-                <Typography
-                  sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
-                >
-                  Name
-                </Typography>
-                <Typography
-                  sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
-                >
-                  Role
-                </Typography>
-                <Typography
-                  sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
-                >
-                  Email
-                </Typography>
-                <Typography
-                  sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
-                >
-                  Status
-                </Typography>
-                <Typography
-                  sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
-                >
-                  Action
-                </Typography>
-              </Box>
+              Name
+            </Typography>
+            <Typography
+              sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
+            >
+              Role
+            </Typography>
+            <Typography
+              sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
+            >
+              Email
+            </Typography>
+            <Typography
+              sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
+            >
+              Status
+            </Typography>
+            <Typography
+              sx={{ color: "#64748B", fontWeight: 600, fontSize: "0.875rem" }}
+            >
+              Action
+            </Typography>
+          </Box>
 
-              {currentUsers.length > 0 ? (
-                currentUsers.map((user, index) => (
-                  <Box
-                    key={user.id || index}
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "2.5fr 1fr 2fr 1fr 1fr",
-                      borderBottom: "1px solid #E2E8F0",
-                      p: 2,
-                      bgcolor: "white",
+          {/* Loading indicator */}
+          {loading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
+              <CircularProgress sx={{ color: "#8B0000" }} />
+            </Box>
+          ) : displayedUsers.length > 0 ? (
+            displayedUsers.map(renderUserRow)
+          ) : (
+            <Box sx={{ p: 3, textAlign: "center" }}>
+              <Typography sx={{ color: "#64748B" }}>
+                {searchQuery
+                  ? "No users found matching your search"
+                  : "No users found"}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+
+        {/* Pagination */}
+        {filteredAndSortedUsers.length > 0 && (
+          <Box
+            sx={{
+              mt: 3,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              px: 1,
+            }}
+          >
+            <Typography sx={{ color: "#64748B", fontSize: "0.875rem" }}>
+              Showing {startIndex + 1} to{" "}
+              {Math.min(
+                startIndex + rowsPerPage,
+                filteredAndSortedUsers.length
+              )}{" "}
+              of {filteredAndSortedUsers.length} entries
+            </Typography>
+            <Stack spacing={2}>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={handlePageChange}
+                shape="rounded"
+                showFirstButton
+                showLastButton
+                sx={{
+                  "& .MuiPaginationItem-root": {
+                    color: "#64748B",
+                    borderRadius: 1,
+                    "&.Mui-selected": {
+                      bgcolor: "#8B0000",
+                      color: "white",
                       "&:hover": {
-                        bgcolor: "#F8FAFC",
+                        bgcolor: "#6B0000",
                       },
-                      "&:last-child": {
-                        borderBottom: "none",
-                      },
-                    }}
-                  >
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                      <Avatar
-                        sx={{
-                          width: 32,
-                          height: 32,
-                          bgcolor: getAvatarColor(user.name),
-                          fontSize: "0.875rem",
-                          fontWeight: 600,
-                          boxShadow: "0 2px 4px rgba(0,0,0,0.05)",
-                          border: "2px solid #fff",
-                        }}
-                      >
-                        {user.name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </Avatar>
-                      <Typography
-                        sx={{
-                          color: "#1a1f36",
-                          fontSize: "0.875rem",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {user.name}
-                      </Typography>
-                    </Box>
-                    <Typography
-                      sx={{
-                        color: "#64748B",
-                        fontSize: "0.875rem",
-                        display: "flex",
-                        alignItems: "center",
-                      }}
-                    >
-                      {user.role}
-                    </Typography>
-                    <Typography sx={{ color: "#64748B", fontSize: "0.875rem" }}>
-                      {user.email}
-                    </Typography>
-                    <Box>
-                      <Chip
-                        label={user.status}
-                        size="small"
-                        sx={{
-                          bgcolor: user.status === "Active" ? "#dcfce7" : "#fee2e2",
-                          color: user.status === "Active" ? "#16a34a" : "#ef4444",
-                          fontWeight: 500,
-                          fontSize: "0.75rem",
-                        }}
-                      />
-                    </Box>
-                    <Box sx={{ display: "flex", gap: 1 }}>
-                      <IconButton
-                        size="small"
-                        sx={{
-                          color: "#D4A017",
-                          "&:hover": {
-                            bgcolor: "rgba(212, 160, 23, 0.1)",
-                          },
-                        }}
-                      >
-                        <Edit sx={{ fontSize: 20 }} />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        sx={{
-                          color: "#8B0000",
-                          "&:hover": {
-                            bgcolor: "rgba(139, 0, 0, 0.1)",
-                          },
-                        }}
-                      >
-                        <Delete sx={{ fontSize: 20 }} />
-                      </IconButton>
-                    </Box>
-                  </Box>
-                ))
-              ) : (
-                <Box sx={{ p: 3, textAlign: 'center' }}>
-                  <Typography sx={{ color: '#64748B' }}>
-                    No users found
-                  </Typography>
-                </Box>
-              )}
-            </Paper>
-
-            {/* Pagination */}
-            {filteredUsers.length > 0 && (
-              <Box
-                sx={{
-                  mt: 3,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  px: 1,
+                    },
+                    "&:hover": {
+                      bgcolor: "rgba(139, 0, 0, 0.1)",
+                    },
+                  },
                 }}
-              >
-                <Typography sx={{ color: "#64748B", fontSize: "0.875rem" }}>
-                  Showing {startIndex + 1} to{" "}
-                  {Math.min(endIndex, filteredUsers.length)} of {filteredUsers.length}{" "}
-                  entries
-                </Typography>
-                <Stack spacing={2}>
-                  <Pagination
-                    count={totalPages}
-                    page={page}
-                    onChange={handlePageChange}
-                    shape="rounded"
-                    showFirstButton
-                    showLastButton
-                    sx={{
-                      "& .MuiPaginationItem-root": {
-                        color: "#64748B",
-                        borderRadius: 1,
-                        "&.Mui-selected": {
-                          bgcolor: "#8B0000",
-                          color: "white",
-                          "&:hover": {
-                            bgcolor: "#6B0000",
-                          },
-                        },
-                        "&:hover": {
-                          bgcolor: "rgba(139, 0, 0, 0.1)",
-                        },
-                      },
-                      "& .MuiPaginationItem-previousNext": {
-                        border: "1px solid #E2E8F0",
-                        "&:hover": {
-                          bgcolor: "rgba(139, 0, 0, 0.1)",
-                          borderColor: "#8B0000",
-                        },
-                      },
-                      "& .MuiPaginationItem-firstLast": {
-                        border: "1px solid #E2E8F0",
-                        "&:hover": {
-                          bgcolor: "rgba(139, 0, 0, 0.1)",
-                          borderColor: "#8B0000",
-                        },
-                      },
-                      "& .Mui-disabled": {
-                        opacity: 0.5,
-                        border: "1px solid #E2E8F0",
-                      },
-                    }}
-                  />
-                </Stack>
-              </Box>
-            )}
-          </>
+              />
+            </Stack>
+          </Box>
         )}
       </Box>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={handleDeleteCancel}
+        aria-labelledby="delete-dialog-title"
+      >
+        <DialogTitle id="delete-dialog-title">Delete User</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Are you sure you want to delete {userToDelete?.name}? This action
+            cannot be undone.
+          </Typography>
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleDeleteCancel}>Cancel</Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </AdminLayout>
   );
 };
